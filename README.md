@@ -1,51 +1,47 @@
-## 输入/输出数据组织
+## Input/Output Data Organization
 
-这篇文档介绍在使用 PaddlePaddle C-API 时如何组织输入数据，以及如何解析神经网络前向计算的输出结果。
+This article describes how to organize input data and use the feed-forward computation result of neural networks when using PaddlePaddle C-API.
 
-### 输入/输出数据类型
-在C-API中，按照基本数据类型在PaddlePaddle内部的定义和实现，输入数据可分为：
+### Input/Output Data Type
 
-1. 一维整型数组
-1. 二维浮点型矩阵
+In terms of the implement of PaddlePaddle, the types of data input can be generally divided as:
 
-    - 稠密矩阵
-    - 稀疏矩阵
+1. One-dimensional array of integers.
+2. Two-dimensional matrix of floats, including
+    - dense matrix 
+    - sparse matrix
 
-说明：
+Especially, 
+1. The array type **can only store integers**, in order to support some scenarios like
+    - word_id in natrual language processing.
+    - class_id in classification tasks.
+2. Tensors that have more than 2 dimensions, for example images with multi-channels or videos, can be represented as 2D matrix in coding. Users can follow the convenient way to represent tensors using 2D matrixs, we highly recommend users do this by themselves.
+3. 2D-matrixes can represent both row vectors and column vectors, users need to use 2D-matrixes in order to represent float arrays.
+4. For both array and matrix, **appending sequential information will transform them as sequential input. PaddlePaddle rely on those appended sequential information to judge whether an array/matrix is a kind of sequential information.** We will dscribe the definition of "sequential information" in the following sections.
 
-1. 一维数组**仅支持整型值**；
-    - 常用于自然语言处理任务，例如：表示词语在词典中的序号；
-    - 分类任务中类别标签；
-1. 逻辑上高于二维的数据（例如含有多个通道的图片，视频等）在程序实现中都会转化为二维矩阵，转化方法在相应的领域都有通用解决方案，需要使用者自己了解并完成转化；
-1. 二维矩阵可以表示行向量和列向量，任何时候如果需要浮点型数组（向量），都应使用C-API中的矩阵来表示，而不是C-API中的一维数组。
-1. 不论是一维整型数组还是二维浮点数矩阵，**为它们附加上序列信息将变成序列输入。PaddlePaddle 会通过判数据是否附带有序列信息来判断一个向量/矩阵是否是一个序列**。当非序列输入时，无需关心和处理序列信息。关于什么是“序列信息”，下文会详细进行介绍。
+### Basic Concepts for Usage
 
-### 基本使用概念
+- In the inner-implment of PaddlePaddle, for each layer of a neural network, both the input and output data are organized as a `Argument` structure. If a layer has more than one input/output data, then each input/output will have its own `Argument`.
+- `Argument` does not really "store" data, it just organically organizes input/output information together.
+- As to the implement of `Argument`, arrays and matrixes are stored by `IVector` and `Matrix` store respectively. `Sequence Start Positions` (will be described in the following sections) contains the sequential information of input/outout data.
 
-- 在PaddlePaddle内部，神经网络中一个计算层的输入/输出被组织为一个 `Argument` 结构体，如果神经网络有多个输入或者多个输出，每一个输入/输出都会对应有自己的`Argument`。
-- `Argument` 并不真正“存储”数据，而是将输入/输出信息有机地组织在一起。
-- 在`Argument`内部由`IVector`（对应着上文提到的一维整型数组）和`Matrix`（对应着上文提到的二维浮点型矩阵）来实际存储数据；由 `Sequence Start Positions` (下文详细解释) 来描述输入/输出的序列信息。
+-**Notice that**:
+    1. We will refer to the input/output data of each layer of PaddlePaddle as `argument` hereafter.
+    2. We will refer to array in paddle as `paddle_ivector`.
+    3. We will refer to matrix in paddle as `paddle_matrix`.
 
-- **注**：
-    1. 这篇文档之后部分将会统一使用`argument`来特指PaddlePaddle中神经网络计算层一个输入/输出数据。
-    1. 使用`paddle_ivector`来特指PaddlePaddle中的一维整型数组。
-    1. 使用`paddle_matrix`来特指PaddlePaddle中的二维浮点型矩阵。
-
-### 组织输入数据
-- 一维整型数组
-
-    概念上可以将`paddle_ivector`理解为一个一维的整型数组，通常用于表示离散的类别标签，或是在自然语言处理任务中表示词语在字典中的序号。下面的代码片段创建了含有三个元素`1`、`2`、`3`的`paddle_ivector`。
+### Organzing Input/Output Data
+- One-dimensional integer array
+    `paddle_ivector`, which stands for integer array, usually can be used to represent discrete information, like class ids or word ids in natural language processing. The example below shows a `paddle_ivector` that has three elements, i.e., `1`, `2` and `3`:
     ```c
     int ids[] = {1, 2, 3};
      paddle_ivector ids_array =
          paddle_ivector_create(ids, sizeof(ids) / sizeof(int), false, false);
      CHECK(paddle_arguments_set_ids(in_args, 0, ids_array));
     ```
-
-- **稠密矩阵**
-    - 一个`m×n`的稠密矩阵是一个由`m`行`n`列元素排列成的矩形阵列，矩阵里的元素是浮点数。对神经网络来说，矩阵的高度`m`是一次预测接受的样本数目，宽度$n$是神经网络定义时，`paddle.layer.data`的`size`。
-    - 下面的代码片段创建了一个高度为1，宽度为`layer_size`的稠密矩阵，矩阵中每个元素的值随机生成。
-
+- **Dense Matrix**
+    - A `m*n` matrix is consisted of `m` rows and `n` columns, each element is a float. To a neural network, the number `m` denotes batch-size, while `n` is the `size` of `paddle.layer.data`, which is configured when building the neural network.
+    - The code below shows a `1 * layer_size` dense matrix, and each element is ramdomized.
     ```c
     paddle_matrix mat = paddle_matrix_create(
                             /* height = batch size */ 1,
@@ -67,27 +63,24 @@
     CHECK(paddle_arguments_set_value(in_args, 0, mat));
     ```
 
-- **稀疏矩阵**
-
-  PaddlePaddle C-API 中 稀疏矩阵使用[CSR（Compressed Sparse Row Format）](https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format))格式存储。下图是CSR存储稀疏矩阵的示意图。
+- **Sparse Matrix**
+  PaddlePaddle uses [CSR（Compressed Sparse Row Format）](https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format)) to store sparse matrix. The Figure-1 illustrates CSR.
   <p align="center">
-  <img src="https://user-images.githubusercontent.com/5842774/34159369-009fd328-e504-11e7-9e08-36bc6dc5e505.png" width=700><br> 图1. 稀疏矩阵存储示意图
+  <img src="https://user-images.githubusercontent.com/5842774/34159369-009fd328-e504-11e7-9e08-36bc6dc5e505.png" width=700><br> Figure-1. Compressed Sparse Row Format. 
   </p>
 
-  CSR存储格式通过：（1）非零元素的值（上图中的`values`）；（2）行偏移(上图中的`row offsets`)：每一行元素在`values`中的起始偏移，`row offsets`中元素个数总是等于行数 + 1；（3）非零元素的列号（上图中的`column indices`）来确定稀疏矩阵的内容。
+CSR uses (1) values of non-zero elements (`values` in Figure-1); (2) row-offset (`row offsets` in Figure-1), which is the offset to the start position in a row. (3) indices of non-zero elements (`column indices` in Figure-1) to represent sparse matrix.
 
-  在PaddlePaddle C-API中，通过调用以下接口创建稀疏矩阵：
-
+  In the C-API of PaddlePaddle, users can create sparse matrixes using the following API:
   ```c
   PD_API paddle_matrix paddle_matrix_create_sparse(
       uint64_t height, uint64_t width, uint64_t nnz, bool isBinary, bool useGpu);
   ```
 
-  1. 创建稀疏矩阵时需要显示地指定矩阵的（1）高度（`height`，在神经网络中等于一次预测处理的样本数）（2）宽度（`width`，`paddle.layer.data`的`size`）以及（3）非零元个数（`nnz`）。
-  1. 当上述接口第4个参数`isBinary`指定为`true`时，**只需要设置行偏移（`row_offset`）和列号(`colum indices`)，不需要提供元素值（`values`）**，这时行偏移和列号指定的元素默认其值为1。
-
-  下面的代码片段创建了一个CPU上的二值稀疏矩阵：
-
+  1. When creating sparse matrixes, some information needs to be configured: (1) height (batch-size). (2) width (`size` of `paddle.layer.data`), (3) number of non-zero elements ('nnz'). 
+  2. When `isBinary` is set as `true`, **users only need to set `row_offset` and `colum indices`, excluding `values`**, and value of each element configured by `row_offset` and `column indices` is set as 1 by default.
+  The following example shows a binary sparse matrix created on CPU:
+  
   ```c
   paddle_matrix mat = paddle_matrix_create_sparse(1, layer_size, nnz, true, false);
   int colIndices[] = {9, 93, 109};  // layer_size here is greater than 109.
@@ -102,7 +95,7 @@
                                  0 /*size of the value arrary is 0.*/));
   CHECK(paddle_arguments_set_value(in_args, 0, mat));
   ```
-  下面的代码片段在创建了一个CPU上的带元素值的稀疏矩阵：
+  The following example shows a sparse matrix created on CPU:
   ```c
   paddle_matrix mat = paddle_matrix_create_sparse(1, layer_size, nnz, false, false);
   int colIndices[] = {9, 93, 109};  // layer_size here is greater than 109.
@@ -117,8 +110,8 @@
                                  values,
                                  sizeof(values) / sizeof(float)));
   ```
-  注意事项：
-  1. 移动端预测**不支持**稀疏矩阵及相关的接口。
+  Notice that：
+  1. Prediction on mobile devices **do not** support sparse matrix right now.
 
 ### 组织序列信息
 
