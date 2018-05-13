@@ -113,40 +113,41 @@ CSR uses (1) values of non-zero elements (`values` in Figure-1); (2) row-offset 
   Notice that：
   1. Prediction on mobile devices **do not** support sparse matrix right now.
 
-### 组织序列信息
+### Organizing Sequential Information
 
-多个排成一列的元素（可以是整型、浮点数、浮点数向量等）构成一个序列，元素之间的顺序是序列所携带的重要信息。不同序列可能会含有不同数目个元素。在 PaddlePaddle 中，序列输入/输出数据是在上文介绍的**数据输入（一维整型数组，二维浮点数矩阵）基础上，附加上序列信息**。下面详细解释什么是“序列信息”。
+A sequence is consisted of multiple elements, including integers, floats, or vectors, with thier order information. Different sequences may have different numbers of elements. In PaddlePaddle, sequential input/output data are **integer arrays or float matrixes with sequential information** as described above. We now discuss in detail the definition of "sequential information".
 
-我们将神经网络一次计算接受的所有输入样本称之为一个`batch`（可以含有一条或多条样本），每一个序列在整个`batch`中的偏移，就是PaddlePaddle中所指的**序列信息**，称之为“sequence start positions”。PaddlePaddle 支持两种序列类型：
+A `batch` is a set of instances, which is fed to a neural network at once for feed-forward computation, the offset of each sequence in the `batch`, is the **sequential information** in PaddlePaddle, we name it "sequence start positions". Two kinds of sequential inforamtion is supported in PaddlePaddle:  
 
-1. 单层序列
-    - 序列中的每一个元素是非序列，是进行计算的基本单位，不可再进行拆分。
-    - 例如：自然语言中的句子是一个序列，序列中的元素是词语；
-1. 双层序列
-    - 序列中的每一个元素又是一个序列。
-    - 例如：自然语言中的段落是一个双层序列；段落是由句子构成的序列；句子是由词语构成的序列。
-    - 双层序列在处理长序列的任务或是构建层级模型时会发挥作用。
+1. single-layer sequence
+    - each element in the sequence is an essential computation unit, not a sequential data.
+    - for example, a natural language sentence is a sequence, its elements are words.
 
-这篇文档之后部分会统一使用`sequence_start_positions`来特指：PaddlePaddle中神经网络计算层输入/输出所携带的序列信息。
+2. double-layer sequence
+    - Each element in the sequence is a sequence.
+    - for example, a natural language paragraph is a double-layer sequence, paragraph is consisted of sentences and sentence is consisted of words.
+    - double-layer sequence could help modeling long-term sequences or building multi-layer neural networks.
 
-对双层序列来讲，不仅要提供每一个外层序列在整个`batch`中的偏移，每一个外层序列又含有若干个内层序列，需要同时提供每一个内层序列在整个`batch`中的偏移。也就是说：**双层序列需要设置分别为外层序列和内层序列分别设置`sequence_start_positions`信息**。
+We refer to the sequential information of input/output data in PaddlePaddle as `sequence_start_positions` hereafter.
 
-**注：**
-1. 不论序列中的元素在内存中占用多少实际存储空间，`sequence_start_positions`表示的偏移是以“序列中的一个元素”作为统计的基本单位，而不是相对`batch`起始存储地址以数据的存储大小为单位的偏移。
-1. 非序列输入不携带`sequence_start_positions`，非序列输入无需构造`sequence_start_positions`。
-1. **不论是单层序列还是双层序列的序列信息，都使用`paddle_ivector`（也就是PaddlePaddle中的一维整型数组）来存储。**
+As for double-layer sequence, not only the offset information of each sequence shall be provided, but also the offset of sequences over the whole `batch` is needed. In other words, **double-layer sequence needs to be configured the `sequence_start_positions` for both the inner-sequence and the outer-sequence**.
 
-图2 是PaddlePaddle中单层序列和双层序列存储示意图。
+**Notice that**
+1. `sequence_start_poistions` represents the `offset of elements`, not the bytes that the data actually takes.
+2. non-sequential input shall not be configured with `sequence_start_positions`.
+3. **both single-layer and double-layer sequences are based on `paddle_ivector` in the implement of PaddlePaddle**.
+
+Figure-2 illustrates how single-layer and double-layer sequences are stored in PaddlePaddle. 
+
 <p align="center">
-<img src="https://user-images.githubusercontent.com/5842774/34159714-1f81a9be-e505-11e7-8a8a-4902146ec899.png" width=800><br>图2. 序列输入示意图
+<img src="https://user-images.githubusercontent.com/5842774/34159714-1f81a9be-e505-11e7-8a8a-4902146ec899.png" width=800><br>Figure-2. Illustration of sequential input data. 
 </p>
 
-- 单层序列
-
-    图2 (a) 展示了一个含有4个序列的`batch`输入：
-    1. 4个序列的长度分别为：5、3、2、4；
-    1. 这时的`sequence_start_positions`为：`[0, 5, 8, 10, 14]`；
-    1. 本地训练. 不论数据域是`paddle_ivector`类型还是`paddle_matrix`类型，都可以通过调用下面的接口为原有的数据输入附加上序列信息，使之变为一个单层序列输入，代码片段如下：
+- single-layer sequence
+    Figure-2 (a) shows a `batch` of 4 sequences:
+    1. the length of each sequence is: 5, 3, 2, 4.
+    2. the `sequence_start_positions` is `[0, 5, 8, 10, 14]`
+    3. while training on local devices, both `paddle_ivector` and `paddle_matrix` can be appended with sequential information using the following API, making them as single-layer sequences:
 
     ```c
     int seq_pos_array[] = {0, 5, 8, 10, 14};
@@ -156,14 +157,14 @@ CSR uses (1) values of non-zero elements (`values` in Figure-1); (2) row-offset 
     CHECK(paddle_arguments_set_sequence_start_pos(in_args, 0, 0, seq_pos));
     ```
 
-- 双层序列
+- double-layer sequence
+    Figure-2 (b) shows a `batch` of 4 sequences:
+    1. the length of each sequence is: 5, 3, 2, 4. While each sequences has 3, 2, 1, 2 sub-sequences.
+    2. the sequential information need to be configured:
+        - offset of outer-sequence to `batch`: [0, 5, 8, 10, 14]
+        - offset of inner-sequence to `batch`: [0, 2, 3, 5, 7, 8, 10, 13, 14]
+    3. for both `paddle_ivector` and `paddle_matrix`, sequential information needs to be configured **twice**, using the code below, to configure the outer-sequence and inner-sequence, to make it a double-layer sequence input. 
 
-    图2 (b) 展示了一个含有4个序列的`batch`输入；
-    1. 4个序列的长度分别为：5、3、2、4；这四个序列又分别含有3、2、1、2个子序列；
-    1. 这时的需要同时提供：
-        - 外层序列在`batch`中的起始偏移`：[0, 5, 8, 10, 14]`；
-        - 内层序列在`batch`中的起始偏移：`[0, 2, 3, 5, 7， 8， 10， 13， 14]`；
-    1. 不论数据域是`paddle_ivector`类型还是`paddle_matrix`类型，这时需要调用创建序列信息和为`argument`设置序列信息的接口**两次**，分别为数据输入添加外层序列和内层序列的序列信息，使之变为一个双层序列输入，代码片段如下：
     ```c
     // set the sequence start positions for the outter sequences.
     int outter_seq_pos_array[] = {0, 5, 8, 10, 14};
@@ -187,96 +188,92 @@ CSR uses (1) values of non-zero elements (`values` in Figure-1); (2) row-offset 
     CHECK(paddle_arguments_set_sequence_start_pos(in_args, 0, 1, seq_pos));
     ```
 
-注意事项：
-1. 当一个`batch`中含有多个序列，**不支持序列长度为`0`的序列（也就是空输入）** 作为输入。不同计算层对空输入的处理策略有可能不同，潜在会引起未定义行为，或者引起行时错误，请在输入时进行合法性检查。
+Notice that:
+1. Each `batch` **shall not contain any `0`-length sequence input**. Different layers may have different strategies in dealing with zero sequences. To prevent some unknown errors, please double-check that the input data contains no 0-length sequences. 
 
-### Python 端数据类型说明
-
-下表列出了Python端训练接口暴露的数据类型（`paddle.layer.data`函数`type`字段的取值）对应于调用C-API需要创建的数据类型：
+### Data-type in Python API
+The table below lists the data type in python API (`type` in `paddle.layer.data`), and its corresponding C-API data type:
 
 <html>
 <table border="2" frame="border">
 <table>
 <thead>
 <tr>
-<th style="text-align:left">Python 端数据类型</th>
-<th style="text-align:left">C-API 输入数据类型</th>
+<th style="text-align:left">Python data type</th>
+<th style="text-align:left">C-API data type</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align:left">paddle.data_type.integer_value</td>
-<td style="text-align:left">整型数组，无需附加序列信息</td>
+<td style="text-align:left">integer array，without sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.dense_vector</td>
-<td style="text-align:left">浮点型稠密矩阵，无需附加序列信息</td>
+<td style="text-align:left">dense float matrix，without sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.sparse_binary_vector</td>
-<td style="text-align:left">浮点型稀疏矩阵，无需提供非零元的值，默认为1，无需附加序列信息</td>
+<td style="text-align:left">sparse float matrix，with binary values (0/1)，without sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.sparse_vector</td>
-<td style="text-align:left">浮点型稀疏矩阵，需提供非零元的值，无需附加序列信息</td>
+<td style="text-align:left">sparse float matrix，non-zero values shall be provided，without sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.integer_value_sequence</td>
-<td style="text-align:left">整型数组，需附加序列信息</td>
+<td style="text-align:left">integer array，with sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.dense_vector_sequence</td>
-<td style="text-align:left">浮点型稠密矩阵，需附加序列信息</td>
+<td style="text-align:left">dense float matrix，with sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.sparse_binary_vector_sequence</td>
-<td style="text-align:left">浮点型稀疏矩阵，无需提供非零元的值，默认为1，需附加序列信息</td>
+<td style="text-align:left">sparse float matrix，with binary values (0/1) and sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.sparse_vector_sequence</td>
-<td style="text-align:left">浮点型稀疏矩阵，需提供非零元的值，需附加序列信息</td>
+<td style="text-align:left">sparse float matrix，non-zero values shall be provided，with sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.integer_value_sub_sequence</td>
-<td style="text-align:left">整型数组，需附加双层序列信息</td>
+<td style="text-align:left">integer array，with double-layer sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.dense_vector_sub_sequence</td>
-<td style="text-align:left">浮点型稠密矩阵，需附加双层序列信息</td>
+<td style="text-align:left">dense float matrix，with double-layer sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.sparse_binary_vector_sub_sequence</td>
-<td style="text-align:left">浮点型稀疏矩阵，无需提供非零元的值，默认为1，需附加双层序列信息</td>
+<td style="text-align:left">sparse float matrix，with binary values (0/1)，with double-layer sequence information</td>
 </tr>
 <tr>
 <td style="text-align:left">paddle.data_type.sparse_vector_sub_sequence</td>
-<td style="text-align:left">浮点型稀疏矩阵，需提供非零元的值，需附加双层序列信息</td>
+<td style="text-align:left">sparse float matrix，non-zero values shall be provided，with double-layer sequence information</td>
 </tr>
 </tbody>
 </table>
 </html>
 <br>
 
+### Output data
+Paddlepaddle has an analogy mechanism in organizing output data to input data. The output data is alos based on `argument` in implement, while `arugment` store output data via `paddle_ivector` and `paddle_matrix`. If the output is a sequence, then `sequence_start_positions` is also provided by layers. Users can directly access to the output information using C-API.
 
-### 输出数据
+### Summary
+- In the inner-implement of PaddlePaddle, both input/output of layers in neural networks are organized as `argument`
+- `argument` logically organize input/output information as a unit, and do not really store those data.
+- `argument` is based on `paddle_ivector` and `paddle_matrix` to store one-dimensional integer array and two-dimensional float matrix respectively.
+- `sequence start positions` contains the sequence inforamtion of input/output data.
 
-PaddlePaddle中一个计算层的输出数据组织方式和输入数据组织方式完全相同。一个输出数据同样被组织为一个`argument`，`argument`通过`paddle_matrix`或`paddle_ivector`存数数据，如果输出是一个序列，那么会携带有`sequence_start_positions`信息。调用C-API相关接口，读取需要的结果即可。
+We recommend users reading following articles for more details:
+1. create `arguemnt` for input/output
+    - please read [argument.h](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h)
+2. create `paddle_matrix` or `paddle_ivector` for `argument`
+    - please read [vector.h](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/vector.h) for creating `paddle_ivector`
+    - please read [matrix.h](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/matrix.h) for creating `paddle_matrix`
+3. create `sequence_start_positions` information for sequential input
+    - create `sequence_start_positions` for `argument`: [`paddle_arguments_set_sequence_start_pos`](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h#L137)
+    - read `sequence_start_positions` for `argument`:[`paddle_arguments_get_sequence_start_pos`](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h#L150)
+    - description of argument API: [`paddle_arguments_get_sequence_start_pos`](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h#L150)
 
-### 总结
-
-- 在PaddlePaddle内部，神经网络中一个计算层的输入/输出被组织为`argument`。
-- `argument`并不真正“存储”数据，而是将输入/输出信息有机地组织在一起。
-- 在`argument`内部由`paddle_ivector`（一维整型数组）和`paddle_matrix`（二维浮点型矩阵）来实际存储数据。
-如果是一个序列输入/输出由 `sequence start positions` 来记录输入/输出的序列信息。
-
-于是，在组织神经网络输入时，需要思考完成以下工作：
-
-1. 为每一个输入/输出创建`argument`。
-    - C-API 中操作`argument`的接口请查看[argument.h](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h)。
-1. 为每一个`argument`创建`paddle_matrix`或者`paddle_ivector`来存储数据。
-    - C-API 中操作`paddle_ivector`的接口请查看 [vector.h](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/vector.h)。
-    - C-API 中操作`paddle_matrix`的接口请查看[matrix.h](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/matrix.h)。
-1. 如果输入是序列数据，需要创建并填写`sequence_start_positions`信息。
-    - 通过调用 [`paddle_arguments_set_sequence_start_pos`](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h#L137) 来为一个`argument`添加序列信息。
-    - 通过调用 [`paddle_arguments_get_sequence_start_pos`](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h#L150) 来读取一个`argument`添加序列信息。
-    - 接口说明请查看 [argument.h](https://github.com/PaddlePaddle/Paddle/blob/develop/paddle/capi/arguments.h) 文件。
